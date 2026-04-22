@@ -109,3 +109,38 @@ class BasicPriority(Enum):
     TELEOP = 1    # lowest
 ```
 You can also overwrite it with your own, or use any `IntEnum` you like!
+
+# 4- Errors, Error Handling and `FaultManager`
+Sometimes, something goes wrong. A motor overheats, a cable comes lose, a sense is not tuned properly. The traditonal way to handle this is using pythongs `raise`, `try`, and `except` keywords. This approach works, but lets be honest, you will not rember to catch every fault, and when you do it will probobly not be handled properly. `AdaptiveRobot` introduces a system called `Faults` to manage this. Anything that inherits from the `Faultable` class can raise a fault (any `AdaptiveRobot` or `AdaptiveComponent` already inherit from faultable. Every fault has to have a sevarity level, either `Warning` (operation continues, error logged), `Error` (an error that can be handled), and `Critical` (robot immedatly disables). Lets look at an example
+```python
+from adaptive_robot import AdaptiveComponent, Faultable, FaultSeverity
+
+class MyComponent(AdaptiveComponent):
+    def execute(self) -> None:
+        try:
+            result = self.sensor.read()
+        except SensorError as e:
+            self.raise_fault( # Faultable provides the raise_fault method
+                component=self,
+                severity=FaultSeverity.ERROR,
+                description="Sensor read failed",
+                exception=e
+            )
+
+    def check_limits(self) -> None:
+        if self.position > MAX_POSITION:
+            self.raise_fault(
+                component=self,
+                severity=FaultSeverity.WARNING,
+                description=f"Position limit exceeded: {self.position}"
+            )
+
+    def detect_critical_issue(self) -> None:
+        self.raise_fault(
+            component=self,
+            severity=FaultSeverity.CRITICAL,
+            description="Motor overheating detected"
+        )
+```
+Faults are handled by the `FaultManager` class, which sits above the robot in the component heirerarchy. `FaultManager` is provided by `AdaptiveRobot` and end users should rarley touch it, but if you look in the full fault docs, you can see how to do it. When you raise a fault it is caught by `FaultManager`, if it is `Critical`, the fault robot is disabled. If it is an `Error` the component is marked as unhealty and `on_faulted_periodic` is called every cycle. After the max unealthy cyclces (configurable, 10 by default) the component is disabled. Warnings are logged and control returns to the component. Errors can and should be explicitly caught by components if possible, that said you can also handle errors in `on_faulted_periodic`. 
+
